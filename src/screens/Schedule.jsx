@@ -123,6 +123,14 @@ export default function Schedule({ days, staff, me, isAdmin, actions }) {
                 ))
               )}
             </div>
+            {day.hasCalendars && (
+              <div className="hint">
+                {day.noClass.length > 0 && (
+                  <span>{t('No classes that day: {names}.', { names: day.noClass.join(', ') })} </span>
+                )}
+                <span>{t('Availability is only a hint: it never decides who works a shift.')}</span>
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -150,8 +158,14 @@ export default function Schedule({ days, staff, me, isAdmin, actions }) {
               />
               {m.name}
               {assigning.shift.busy.includes(m.id) && <span className="tag tag-accent">{t('Busy')}</span>}
+              {!assigning.shift.busy.includes(m.id) && assigning.shift.noClass.includes(m.id) && (
+                <span className="tag tag-neutral">{t('No classes')}</span>
+              )}
             </label>
           ))}
+          <p className="text-muted" style={{ margin: 0, fontSize: 12 }}>
+            {t('Availability is only a hint: it never decides who works a shift.')}
+          </p>
         </Dialog>
       )}
 
