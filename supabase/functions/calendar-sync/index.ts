@@ -4,7 +4,7 @@
 // function (service role) can read it, and never returned to the browser.
 import ICAL from 'npm:ical.js@2.1.0';
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { busyIntervals, nextOccurrence, overlaps } from './core.js';
+import { buildFeed, busyIntervals, nextOccurrence, overlaps } from './core.js';
 
 const TZ = 'Europe/Paris';
 const WINDOW_MS = 8 * 24 * 3600 * 1000;
@@ -46,8 +46,82 @@ async function fetchIcs(url: string): Promise<string> {
   return text;
 }
 
+const adminClient = () =>
+  createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+const newToken = () => {
+  const b = crypto.getRandomValues(new Uint8Array(32));
+  return btoa(String.fromCharCode(...b)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+};
+
+const DAYS_FR: Record<string, string> = {
+  Monday: 'lundi', Tuesday: 'mardi', Wednesday: 'mercredi', Thursday: 'jeudi',
+  Friday: 'vendredi', Saturday: 'samedi', Sunday: 'dimanche',
+};
+
+// GET ?t=<token>: a personal subscription feed with the member's next shifts.
+// Google Calendar / Outlook / Apple fetch it without logging in, so the token is the secret.
+async function serveFeed(req: Request) {
+  const u = new URL(req.url);
+  const token = u.searchParams.get('t') ?? '';
+  const fr = u.searchParams.get('lang') !== 'en';
+  const notFound = () => new Response('Not found', { status: 404, headers: cors });
+  if (!/^[A-Za-z0-9_-]{20,}$/.test(token)) return notFound();
+
+  const db = adminClient();
+  const { data: row } = await db.from('feed_tokens').select('staff_id').eq('token', token).maybeSingle();
+  if (!row) return notFound();
+
+  const { data: mine } = await db.from('shift_assignments').select('shift_id').eq('staff_id', row.staff_id);
+  const shiftIds = (mine ?? []).map((m) => m.shift_id as number);
+  const { data: shifts } = shiftIds.length
+    ? await db.from('shifts').select('id, day, time_label').in('id', shiftIds)
+    : { data: [] as { id: number; day: string; time_label: string }[] };
+
+  // Colleagues on the same shifts, for the event description.
+  const names = new Map<number, string[]>();
+  if (shiftIds.length) {
+    const { data: all } = await db.from('shift_assignments').select('shift_id, staff_id').in('shift_id', shiftIds);
+    const { data: people } = await db.from('staff').select('id, name').in('id', [...new Set((all ?? []).map((a) => a.staff_id))]);
+    const nameOf = new Map((people ?? []).map((p) => [p.id as number, p.name as string]));
+    for (const a of all ?? []) {
+      if (a.staff_id === row.staff_id) continue;
+      names.set(a.shift_id, [...(names.get(a.shift_id) ?? []), nameOf.get(a.staff_id) ?? '']);
+    }
+  }
+
+  const now = new Date();
+  const events = [];
+  for (const s of shifts ?? []) {
+    const occ = nextOccurrence(s.day, s.time_label, TZ, now); // next date only
+    if (!occ) continue;
+    const date = new Date(occ.start).toISOString().slice(0, 10).replace(/-/g, '');
+    const others = (names.get(s.id) ?? []).filter(Boolean);
+    const when = fr ? `Créneau du ${DAYS_FR[s.day] ?? s.day} ${s.time_label}.` : `${s.day} shift ${s.time_label}.`;
+    const withText = others.length ? `\n${fr ? 'Avec' : 'With'} : ${others.join(', ')}` : '';
+    events.push({
+      uid: `shift-${s.id}-${date}@campus-cafe`,
+      start: occ.start,
+      end: occ.end,
+      summary: fr ? 'Service au Campus Café' : 'Campus Café shift',
+      description: when + withText,
+    });
+  }
+
+  return new Response(buildFeed({ name: 'Campus Café', events, now }), {
+    headers: {
+      ...cors,
+      'Content-Type': 'text/calendar; charset=utf-8',
+      'Cache-Control': 'no-store',
+    },
+  });
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
+  if (req.method === 'GET') return serveFeed(req);
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
   const url = Deno.env.get('SUPABASE_URL')!;
@@ -135,6 +209,21 @@ Deno.serve(async (req) => {
       await db.from('calendars').delete().eq('id', id);
       if (cal.staff_id) await syncStaff([cal.staff_id]);
       return json({ ok: true });
+    }
+
+    if (action === 'feed-link' || action === 'feed-rotate') {
+      const lang = body.lang === 'en' ? 'en' : 'fr';
+      let token: string | undefined;
+      if (action === 'feed-link') {
+        const { data } = await db.from('feed_tokens').select('token').eq('staff_id', meId).maybeSingle();
+        token = data?.token;
+      }
+      if (!token) {
+        token = newToken();
+        const { error } = await db.from('feed_tokens').upsert({ staff_id: meId, token });
+        if (error) throw error;
+      }
+      return json({ url: `${url}/functions/v1/calendar-sync?t=${token}&lang=${lang}` });
     }
 
     if (action === 'sync') {

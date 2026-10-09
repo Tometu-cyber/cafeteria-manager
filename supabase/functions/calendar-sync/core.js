@@ -90,3 +90,61 @@ export function busyIntervals(ICAL, icsText, from, to) {
 }
 
 export const overlaps = (intervals, start, end) => intervals.some(([s, e]) => s < end && e > start);
+
+// ---- iCal feed output ------------------------------------------------------
+
+const esc = (s) =>
+  String(s).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+
+// RFC 5545: lines longer than 75 octets are folded with CRLF + space.
+const fold = (line) => {
+  const enc = new TextEncoder();
+  if (enc.encode(line).length <= 75) return line;
+  const out = [];
+  let cur = '';
+  let bytes = 0;
+  for (const ch of line) {
+    const b = enc.encode(ch).length;
+    if (bytes + b > 75) {
+      out.push(cur);
+      cur = ' ';
+      bytes = 1;
+    }
+    cur += ch;
+    bytes += b;
+  }
+  out.push(cur);
+  return out.join('\r\n');
+};
+
+const stamp = (ms) => new Date(ms).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+
+// events: [{ uid, start (ms), end (ms), summary, description? }]
+export function buildFeed({ name, events, now = new Date() }) {
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Campus Cafe//Shifts//EN',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    `X-WR-CALNAME:${esc(name)}`,
+    'REFRESH-INTERVAL;VALUE=DURATION:PT1H',
+    'X-PUBLISHED-TTL:PT1H',
+  ];
+  for (const e of events) {
+    lines.push(
+      'BEGIN:VEVENT',
+      `UID:${e.uid}`,
+      `DTSTAMP:${stamp(now.getTime())}`,
+      `DTSTART:${stamp(e.start)}`,
+      `DTEND:${stamp(e.end)}`,
+      `SUMMARY:${esc(e.summary)}`,
+      ...(e.description ? [`DESCRIPTION:${esc(e.description)}`] : []),
+      'TRANSP:OPAQUE',
+      'STATUS:CONFIRMED',
+      'END:VEVENT',
+    );
+  }
+  lines.push('END:VCALENDAR');
+  return lines.map(fold).join('\r\n') + '\r\n';
+}

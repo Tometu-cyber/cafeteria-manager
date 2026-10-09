@@ -112,6 +112,9 @@ export const api = {
   connectCalendar: (url) => invoke('calendar-sync', { action: 'connect', url }),
   disconnectCalendar: (id) => invoke('calendar-sync', { action: 'disconnect', id }),
   syncCalendars: (force = false) => invoke('calendar-sync', { action: 'sync', force }),
+  // Personal subscription link for "my shifts in my calendar".
+  feedLink: (lang) => invoke('calendar-sync', { action: 'feed-link', lang }).then((r) => r.url),
+  rotateFeedLink: (lang) => invoke('calendar-sync', { action: 'feed-rotate', lang }).then((r) => r.url),
 
   // account
   changePassword: async (password) => {

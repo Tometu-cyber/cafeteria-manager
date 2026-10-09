@@ -135,6 +135,21 @@ export default {
   Connected: 'Connecté',
   Disconnect: 'Déconnecter',
 
+  // My shifts in my calendar
+  'My shifts in my calendar': 'Mes créneaux dans mon agenda',
+  'Subscribe once and the shifts you are placed on show up in your calendar. The link lists your next shifts only.':
+    'Abonnez-vous une fois : les créneaux sur lesquels vous êtes placé·e apparaissent dans votre agenda. Le lien ne liste que vos prochains créneaux.',
+  'Your personal calendar address': 'Votre adresse d’agenda personnelle',
+  'Add to Google Calendar': 'Ajouter à Google Agenda',
+  'Copy address': "Copier l'adresse",
+  Copied: 'Copié',
+  'Copy failed. Select the address and copy it by hand.': "La copie a échoué. Sélectionnez l'adresse et copiez-la à la main.",
+  'Reset link': 'Réinitialiser le lien',
+  'Reset the link? The old one stops working and you will need to subscribe again.':
+    "Réinitialiser le lien ? L'ancien cesse de fonctionner et vous devrez vous réabonner.",
+  'Google refreshes subscribed calendars only every 12 to 24 hours, so a change can take that long to appear. Treat the address like a password.':
+    "Google ne rafraîchit les agendas auxquels on est abonné que toutes les 12 à 24 heures : un changement peut mettre ce temps à apparaître. Traitez cette adresse comme un mot de passe.",
+
   // My calendar
   'Your availability': 'Votre disponibilité',
   'Connect your calendar and the schedule shows when you are free, and flags a shift that clashes with an event.':
