@@ -4,5 +4,10 @@ import './fonts.css';
 import './tokens-and-components.css';
 import './layout.css';
 import App from './App.jsx';
+import { I18nProvider } from './i18n.jsx';
 
-createRoot(document.getElementById('root')).render(<App />);
+createRoot(document.getElementById('root')).render(
+  <I18nProvider>
+    <App />
+  </I18nProvider>,
+);

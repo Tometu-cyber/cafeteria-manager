@@ -1,7 +1,9 @@
 import { useEffect, useId } from 'react';
+import { useT } from './i18n.jsx';
 
 // Modal built on the design system's .dialog classes.
 export default function Dialog({ title, onClose, onSubmit, submitLabel = 'Save', children }) {
+  const { t } = useT();
   const titleId = useId();
 
   useEffect(() => {
@@ -23,9 +25,9 @@ export default function Dialog({ title, onClose, onSubmit, submitLabel = 'Save',
           <div className="dialog-body stack gap-3">{children}</div>
           <div className="dialog-actions">
             <button type="button" className="btn btn-secondary" onClick={onClose}>
-              {onSubmit ? 'Cancel' : 'Close'}
+              {onSubmit ? t('Cancel') : t('Close')}
             </button>
-            {onSubmit && <button type="submit" className="btn btn-primary">{submitLabel}</button>}
+            {onSubmit && <button type="submit" className="btn btn-primary">{t(submitLabel)}</button>}
           </div>
         </form>
       </div>

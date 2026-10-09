@@ -10,30 +10,25 @@ const check = ({ data, error }) => {
   return data;
 };
 
-const fmtSync = (ts) =>
-  ts ? new Date(ts).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : 'never';
+export const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 // Reads every table and shapes it the way the screens expect.
 export async function loadAll() {
-  const [staff, products, shifts, assignments, availability, calendars] = await Promise.all([
+  const [staff, products, shifts, assignments, busy, calendars] = await Promise.all([
     supabase.from('staff').select('*').order('id').then(check),
     supabase.from('products').select('*').order('id').then(check),
-    supabase.from('shifts').select('*').order('day_order').order('id').then(check),
+    supabase.from('shifts').select('*').order('day_order').order('time_label').then(check),
     supabase.from('shift_assignments').select('*').then(check),
-    supabase.from('availability').select('*').then(check),
-    supabase.from('calendars').select('*').order('id').then(check),
+    supabase.from('shift_busy').select('*').then(check),
+    supabase.from('calendars').select('id, name, last_sync, staff_id').order('id').then(check),
   ]);
 
-  const nameOf = new Map(staff.map((m) => [m.id, m.name]));
+  const withCalendar = new Set(calendars.map((c) => c.staff_id));
   const days = [];
   for (const s of shifts) {
     let day = days.find((d) => d.name === s.day);
     if (!day) {
-      day = {
-        name: s.day,
-        shifts: [],
-        available: availability.filter((a) => a.day === s.day).map((a) => nameOf.get(a.staff_id)).filter(Boolean),
-      };
+      day = { name: s.day, shifts: [] };
       days.push(day);
     }
     day.shifts.push({
@@ -41,7 +36,15 @@ export async function loadAll() {
       time: s.time_label,
       needed: s.needed,
       assigned: assignments.filter((a) => a.shift_id === s.id).map((a) => a.staff_id),
+      busy: busy.filter((b) => b.shift_id === s.id).map((b) => b.staff_id),
     });
+  }
+  // "Free" = has a connected calendar and isn't busy for any shift that day.
+  for (const day of days) {
+    day.hasCalendars = withCalendar.size > 0;
+    day.free = staff
+      .filter((m) => withCalendar.has(m.id) && day.shifts.every((sh) => !sh.busy.includes(m.id)))
+      .map((m) => m.name);
   }
 
   return {
@@ -56,19 +59,40 @@ export async function loadAll() {
       cost: p.cost,
       price: p.price,
     })),
-    calendars: calendars.map((c) => ({ id: c.id, name: c.name, lastSync: fmtSync(c.last_sync) })),
+    calendars: calendars.map((c) => ({ id: c.id, name: c.name, staffId: c.staff_id, lastSync: c.last_sync })),
   };
 }
 
-export const api = {
-  addStaff: (m) => supabase.from('staff').insert(m).then(check),
-  toggleRole: (id, role) => supabase.from('staff').update({ role }).eq('id', id).then(check),
-  removeStaff: (id) => supabase.from('staff').delete().eq('id', id).then(check),
+// Edge functions: account management and calendar sync run server-side.
+async function invoke(fn, body) {
+  const { data, error } = await supabase.functions.invoke(fn, { body });
+  if (error) {
+    let msg = error.message;
+    try { msg = (await error.context.json()).error || msg; } catch { /* keep default */ }
+    throw new Error(msg);
+  }
+  return data;
+}
+const redirectTo = () => window.location.origin + window.location.pathname;
 
+export const api = {
+  // staff (admin only)
+  createStaff: (m) => invoke('staff-admin', { action: 'create', redirectTo: redirectTo(), ...m }),
+  sendLink: (email) => invoke('staff-admin', { action: 'send-link', email, redirectTo: redirectTo() }),
+  deleteStaff: (id) => invoke('staff-admin', { action: 'delete', id }),
+  toggleRole: (id, role) => supabase.from('staff').update({ role }).eq('id', id).then(check),
+
+  // products
   addProduct: (p) => supabase.from('products').insert(p).then(check),
   removeProduct: (id) => supabase.from('products').delete().eq('id', id).then(check),
   adjustStock: (id, current) => supabase.from('products').update({ current }).eq('id', id).then(check),
 
+  // shifts
+  addShift: (s) =>
+    supabase.from('shifts').insert({ ...s, day_order: WEEKDAYS.indexOf(s.day) + 1 }).then(check),
+  updateShift: (id, s) =>
+    supabase.from('shifts').update({ ...s, day_order: WEEKDAYS.indexOf(s.day) + 1 }).eq('id', id).then(check),
+  deleteShift: (id) => supabase.from('shifts').delete().eq('id', id).then(check),
   async assignShift(shiftId, staffIds) {
     check(await supabase.from('shift_assignments').delete().eq('shift_id', shiftId));
     if (staffIds.length) {
@@ -79,30 +103,23 @@ export const api = {
       );
     }
   },
+  joinShift: (shiftId, staffId) =>
+    supabase.from('shift_assignments').insert({ shift_id: shiftId, staff_id: staffId }).then(check),
+  leaveShift: (shiftId, staffId) =>
+    supabase.from('shift_assignments').delete().eq('shift_id', shiftId).eq('staff_id', staffId).then(check),
 
-  removeCalendar: (id) => supabase.from('calendars').delete().eq('id', id).then(check),
+  // calendars
+  connectCalendar: (url) => invoke('calendar-sync', { action: 'connect', url }),
+  disconnectCalendar: (id) => invoke('calendar-sync', { action: 'disconnect', id }),
+  syncCalendars: (force = false) => invoke('calendar-sync', { action: 'sync', force }),
+
+  // account
+  changePassword: async (password) => {
+    const { error } = await supabase.auth.updateUser({ password });
+    if (error) throw error;
+  },
 };
 
 export const auth = {
   signOut: () => supabase.auth.signOut(),
 };
-
-api.joinShift = (shiftId, staffId) =>
-  supabase.from('shift_assignments').insert({ shift_id: shiftId, staff_id: staffId }).then(check);
-api.leaveShift = (shiftId, staffId) =>
-  supabase.from('shift_assignments').delete().eq('shift_id', shiftId).eq('staff_id', staffId).then(check);
-
-// Account management runs server-side (supabase/functions/staff-admin) and only admins may call it.
-async function staffAdmin(body) {
-  const { data, error } = await supabase.functions.invoke('staff-admin', { body });
-  if (error) {
-    let msg = error.message;
-    try { msg = (await error.context.json()).error || msg; } catch { /* keep default */ }
-    throw new Error(msg);
-  }
-  return data;
-}
-const redirectTo = () => window.location.origin + window.location.pathname;
-api.createStaff = (m) => staffAdmin({ action: 'create', redirectTo: redirectTo(), ...m });
-api.sendLink = (email) => staffAdmin({ action: 'send-link', email, redirectTo: redirectTo() });
-api.deleteStaff = (id) => staffAdmin({ action: 'delete', id });
