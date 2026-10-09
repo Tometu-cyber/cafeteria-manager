@@ -17,7 +17,8 @@ const EMPTY = { staff: [], inventory: [], calendars: [], days: [] };
 export default function App() {
   // undefined = still checking, null = signed out
   const [session, setSession] = useState(undefined);
-  const [recovering, setRecovering] = useState(false); // arrived via a password-reset link
+  // Arrived via an invitation link: the person must choose a password first.
+  const [recovering, setRecovering] = useState(/type=invite/.test(window.__authHash || ''));
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -61,9 +62,10 @@ function Signed({ session }) {
       await fn(...args);
     } catch (e) {
       setError(e.message || String(e));
-      return;
+      return false;
     }
     await refresh();
+    return true;
   };
 
   const email = session.user.email?.toLowerCase();
@@ -72,7 +74,7 @@ function Signed({ session }) {
 
   const actions = {
     addStaff: run(api.createStaff),
-    setPassword: run(api.setPassword),
+    sendLink: run(api.sendLink),
     toggleRole: run((id) => api.toggleRole(id, data.staff.find((m) => m.id === id).role === 'admin' ? 'staff' : 'admin')),
     removeStaff: run(api.deleteStaff),
     addProduct: run((p) => api.addProduct({ name: p.name, cost: p.cost, price: p.price })),

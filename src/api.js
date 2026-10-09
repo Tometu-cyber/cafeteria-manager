@@ -102,6 +102,7 @@ async function staffAdmin(body) {
   }
   return data;
 }
-api.createStaff = (m) => staffAdmin({ action: 'create', ...m });
-api.setPassword = (email, password) => staffAdmin({ action: 'set-password', email, password });
+const redirectTo = () => window.location.origin + window.location.pathname;
+api.createStaff = (m) => staffAdmin({ action: 'create', redirectTo: redirectTo(), ...m });
+api.sendLink = (email) => staffAdmin({ action: 'send-link', email, redirectTo: redirectTo() });
 api.deleteStaff = (id) => staffAdmin({ action: 'delete', id });

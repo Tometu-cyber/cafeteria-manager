@@ -8,39 +8,7 @@ const TABS = [
   ['calendar', 'Calendars'],
 ];
 
-// 12 random characters from an unambiguous alphabet, for suggesting a first password.
-const generatePassword = () => {
-  const chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  return Array.from(crypto.getRandomValues(new Uint32Array(12)), (n) => chars[n % chars.length]).join('');
-};
-
-function PasswordField({ id, label, value, onChange }) {
-  return (
-    <div className="field">
-      <label htmlFor={id}>{label}</label>
-      <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-        <input
-          id={id}
-          name="password"
-          className="input"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          minLength={8}
-          autoComplete="off"
-          required
-        />
-        <button type="button" className="btn btn-secondary" onClick={() => onChange(generatePassword())}>
-          Generate
-        </button>
-      </div>
-      <span className="text-muted" style={{ fontSize: 12, marginTop: 4 }}>
-        At least 8 characters. Share it with them privately; they can change it with “Forgot password”.
-      </span>
-    </div>
-  );
-}
-
-function MemberCard({ member, isSelf, onToggle, onRemove, onPassword }) {
+function MemberCard({ member, isSelf, onToggle, onRemove, onSendLink }) {
   const admin = member.role === 'admin';
   return (
     <div className="card elev-sm row-card">
@@ -53,7 +21,7 @@ function MemberCard({ member, isSelf, onToggle, onRemove, onPassword }) {
       <button className="btn btn-ghost" onClick={() => onToggle(member.id)}>
         {admin ? 'Make staff' : 'Make admin'}
       </button>
-      <button className="btn btn-ghost" onClick={() => onPassword(member)}>Set password</button>
+      <button className="btn btn-ghost" onClick={() => onSendLink(member)}>Send password link</button>
       {!isSelf && <button className="btn btn-ghost" onClick={() => onRemove(member.id)}>Remove</button>}
     </div>
   );
@@ -61,23 +29,19 @@ function MemberCard({ member, isSelf, onToggle, onRemove, onPassword }) {
 
 export default function Admin({ staff, inventory, calendars, actions, me }) {
   const [tab, setTab] = useState('staff');
-  const [dialog, setDialog] = useState(null); // 'staff' | 'product' | 'calendar' | 'password'
-  const [target, setTarget] = useState(null); // member whose password is being set
-  const [pw, setPw] = useState('');
+  const [dialog, setDialog] = useState(null); // 'staff' | 'product' | 'calendar'
+  const [notice, setNotice] = useState(null); // confirmation after sending an email
   const close = () => setDialog(null);
-  const openStaff = () => {
-    setPw(generatePassword());
-    setDialog('staff');
-  };
-  const openPassword = (member) => {
-    setTarget(member);
-    setPw(generatePassword());
-    setDialog('password');
+  const openStaff = () => setDialog('staff');
+  const sendLink = async (member) => {
+    setNotice(null);
+    const ok = await actions.sendLink(member.email);
+    if (ok) setNotice(`Password link sent to ${member.email}.`);
   };
   const cardProps = {
     onToggle: actions.toggleRole,
     onRemove: actions.removeStaff,
-    onPassword: openPassword,
+    onSendLink: sendLink,
   };
 
   const admins = staff.filter((m) => m.role === 'admin');
@@ -90,6 +54,13 @@ export default function Admin({ staff, inventory, calendars, actions, me }) {
         <h1 className="page-title">Team and menu</h1>
         <p className="page-lede">Who can staff the café, what it sells, and which calendars feed the schedule.</p>
       </div>
+
+      {notice && (
+        <div className="card elev-sm notice" role="status">
+          <div>{notice}</div>
+          <button className="btn btn-secondary" onClick={() => setNotice(null)}>Dismiss</button>
+        </div>
+      )}
 
       <div className="tabs" role="tablist">
         {TABS.map(([id, label]) => (
@@ -174,16 +145,18 @@ export default function Admin({ staff, inventory, calendars, actions, me }) {
       {dialog === 'staff' && (
         <Dialog
           title="Add staff member"
-          submitLabel="Create account"
+          submitLabel="Send invitation"
           onClose={close}
-          onSubmit={(d) => {
-            actions.addStaff({
+          onSubmit={async (d) => {
+            const email = d.get('email').trim();
+            close();
+            setNotice(null);
+            const ok = await actions.addStaff({
               name: d.get('name').trim(),
-              email: d.get('email').trim(),
-              password: d.get('password'),
+              email,
               role: d.get('admin') ? 'admin' : 'staff',
             });
-            close();
+            if (ok) setNotice(`Invitation sent to ${email}. They choose their own password from the link.`);
           }}
         >
           <div className="field">
@@ -194,24 +167,12 @@ export default function Admin({ staff, inventory, calendars, actions, me }) {
             <label htmlFor="s-email">Email</label>
             <input id="s-email" name="email" type="email" className="input" required />
           </div>
-          <PasswordField id="s-password" label="First password" value={pw} onChange={setPw} />
+          <p className="text-muted" style={{ margin: 0, fontSize: 13 }}>
+            We email them a link to choose their own password, so nobody else ever sees it.
+          </p>
           <label className="dialog-check">
             <input type="checkbox" name="admin" /> Make this person an admin
           </label>
-        </Dialog>
-      )}
-
-      {dialog === 'password' && target && (
-        <Dialog
-          title={`Set password for ${target.name}`}
-          submitLabel="Set password"
-          onClose={close}
-          onSubmit={(d) => {
-            actions.setPassword(target.email, d.get('password'));
-            close();
-          }}
-        >
-          <PasswordField id="pw-new" label="New password" value={pw} onChange={setPw} />
         </Dialog>
       )}
 

@@ -1,6 +1,8 @@
 // Admin-only account management. Only a signed-in admin (per public.is_admin())
-// can create, reset or delete staff logins. Runs with the service role, which
-// Supabase injects into the function environment — it never reaches the browser.
+// can invite, re-send links to, or delete staff logins. Runs with the service
+// role, which Supabase injects into the function environment — it never reaches
+// the browser. Nobody (including the admin) ever sees a password: members get an
+// emailed link and choose their own.
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const cors = {
@@ -11,17 +13,20 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const ALLOWED_REDIRECTS = ['https://tonoplas909.github.io/cafeteria-manager/', 'http://localhost:5173/'];
+const safeRedirect = (v: unknown) =>
+  typeof v === 'string' && ALLOWED_REDIRECTS.some((p) => v.startsWith(p)) ? v : ALLOWED_REDIRECTS[0];
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
   const url = Deno.env.get('SUPABASE_URL')!;
-  const authHeader = req.headers.get('Authorization') ?? '';
+  const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
 
   // Who is calling? Ask the database, using the caller's own token.
-  const caller = createClient(url, Deno.env.get('SUPABASE_ANON_KEY')!, {
-    global: { headers: { Authorization: authHeader } },
+  const caller = createClient(url, anonKey, {
+    global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } },
   });
   const { data: isAdmin, error: adminErr } = await caller.rpc('is_admin');
   if (adminErr || isAdmin !== true) return json({ error: 'Admins only' }, 403);
@@ -30,6 +35,8 @@ Deno.serve(async (req) => {
   const admin = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+  // Plain anon client: used to send "reset password" emails through the project's SMTP.
+  const anon = createClient(url, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
 
   let body: Record<string, unknown>;
   try {
@@ -37,6 +44,7 @@ Deno.serve(async (req) => {
   } catch {
     return json({ error: 'Invalid JSON' }, 400);
   }
+  const redirectTo = safeRedirect(body.redirectTo);
 
   const findAuthUser = async (email: string) => {
     for (let page = 1; page <= 20; page++) {
@@ -49,16 +57,23 @@ Deno.serve(async (req) => {
     return null;
   };
 
+  // Email a link: an invitation if they never confirmed, otherwise a password reset.
+  const sendLink = async (email: string) => {
+    const existing = await findAuthUser(email);
+    if (!existing || !existing.email_confirmed_at) {
+      return (await admin.auth.admin.inviteUserByEmail(email, { redirectTo })).error;
+    }
+    return (await anon.auth.resetPasswordForEmail(email, { redirectTo })).error;
+  };
+
   try {
     const action = body.action;
 
     if (action === 'create') {
       const name = String(body.name ?? '').trim();
       const email = String(body.email ?? '').trim().toLowerCase();
-      const password = String(body.password ?? '');
       const role = body.role === 'admin' ? 'admin' : 'staff';
       if (!name || !EMAIL.test(email)) return json({ error: 'A name and a valid email are required' }, 400);
-      if (password.length < 8) return json({ error: 'Password must be at least 8 characters' }, 400);
 
       const { data: row, error: insErr } = await admin
         .from('staff').insert({ name, email, role }).select('id').single();
@@ -66,38 +81,20 @@ Deno.serve(async (req) => {
         return json({ error: insErr.code === '23505' ? 'That email is already on the staff list' : insErr.message }, 400);
       }
 
-      const { error: createErr } = await admin.auth.admin.createUser({ email, password, email_confirm: true });
-      if (createErr) {
-        // A login may linger from an earlier staff member with this email: reuse it.
-        const existing = await findAuthUser(email);
-        if (existing) {
-          const { error: upErr } = await admin.auth.admin.updateUserById(existing.id, { password, email_confirm: true });
-          if (upErr) {
-            await admin.from('staff').delete().eq('id', row.id);
-            return json({ error: upErr.message }, 400);
-          }
-        } else {
-          await admin.from('staff').delete().eq('id', row.id);
-          return json({ error: createErr.message }, 400);
-        }
+      const mailErr = await sendLink(email);
+      if (mailErr) {
+        await admin.from('staff').delete().eq('id', row.id);
+        return json({ error: `Couldn't send the email: ${mailErr.message}` }, 400);
       }
       return json({ ok: true, id: row.id });
     }
 
-    if (action === 'set-password') {
+    if (action === 'send-link') {
       const email = String(body.email ?? '').trim().toLowerCase();
-      const password = String(body.password ?? '');
-      if (password.length < 8) return json({ error: 'Password must be at least 8 characters' }, 400);
       const { data: member } = await admin.from('staff').select('id').eq('email', email).maybeSingle();
       if (!member) return json({ error: 'Not on the staff list' }, 404);
-      const existing = await findAuthUser(email);
-      if (existing) {
-        const { error } = await admin.auth.admin.updateUserById(existing.id, { password, email_confirm: true });
-        if (error) return json({ error: error.message }, 400);
-      } else {
-        const { error } = await admin.auth.admin.createUser({ email, password, email_confirm: true });
-        if (error) return json({ error: error.message }, 400);
-      }
+      const mailErr = await sendLink(email);
+      if (mailErr) return json({ error: `Couldn't send the email: ${mailErr.message}` }, 400);
       return json({ ok: true });
     }
 
