@@ -28,6 +28,16 @@ export function todayIn(tz, now = new Date()) {
   return { y, m, d, weekday: new Date(Date.UTC(y, m - 1, d)).getUTCDay() };
 }
 
+// [start, end) of the calendar day (midnight to midnight, in `tz`) containing `epoch`.
+export function localDayBounds(epoch, tz) {
+  const t = todayIn(tz, new Date(epoch));
+  const next = new Date(Date.UTC(t.y, t.m - 1, t.d + 1));
+  return [
+    zonedEpoch(t.y, t.m, t.d, 0, 0, tz),
+    zonedEpoch(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate(), 0, 0, tz),
+  ];
+}
+
 // Next occurrence (not yet finished) of a weekly shift such as ("Monday", "12:15–13:45").
 export function nextOccurrence(dayName, timeLabel, tz, now = new Date()) {
   const m = /(\d{1,2}):(\d{2})\s*[–-]\s*(\d{1,2}):(\d{2})/.exec(timeLabel);

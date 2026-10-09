@@ -57,6 +57,10 @@ export default {
   Full: 'Complet',
   '{a} of {b} staffed': '{a} sur {b} pourvu(s)',
   Busy: 'Occupé·e',
+  'No classes': 'Pas de cours',
+  'No classes that day: {names}.': 'Pas de cours ce jour-là : {names}.',
+  'Availability is only a hint: it never decides who works a shift.':
+    "La disponibilité est seulement indicative : elle ne décide jamais de qui travaille sur un créneau.",
   'Their calendar shows an event at this time': 'Son agenda indique un événement à ce moment',
   'Assign staff': "Affecter l'équipe",
   'Take shift': 'Prendre le créneau',
