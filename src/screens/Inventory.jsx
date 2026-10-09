@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import Dialog from '../Dialog.jsx';
 
-export default function Inventory({ inventory, adjustStock }) {
+export default function Inventory({ inventory, adjustStock, canEdit }) {
   const [adjusting, setAdjusting] = useState(null);
 
   const totalItems = inventory.reduce((s, i) => s + i.current, 0);
@@ -68,7 +68,9 @@ export default function Inventory({ inventory, adjustStock }) {
                     <span className={low ? 'tag tag-accent' : 'tag tag-accent-2'}>{low ? 'Low' : 'OK'}</span>
                   </td>
                   <td className="t-right">
-                    <button className="btn btn-ghost" onClick={() => setAdjusting(item)}>Adjust</button>
+                    {canEdit && (
+                      <button className="btn btn-ghost" onClick={() => setAdjusting(item)}>Adjust</button>
+                    )}
                   </td>
                 </tr>
               );

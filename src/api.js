@@ -82,3 +82,12 @@ export const api = {
 
   removeCalendar: (id) => supabase.from('calendars').delete().eq('id', id).then(check),
 };
+
+export const auth = {
+  signOut: () => supabase.auth.signOut(),
+};
+
+api.joinShift = (shiftId, staffId) =>
+  supabase.from('shift_assignments').insert({ shift_id: shiftId, staff_id: staffId }).then(check);
+api.leaveShift = (shiftId, staffId) =>
+  supabase.from('shift_assignments').delete().eq('shift_id', shiftId).eq('staff_id', staffId).then(check);

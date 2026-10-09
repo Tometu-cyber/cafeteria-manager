@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import Dialog from '../Dialog.jsx';
 
-export default function Schedule({ days, staff, assignShift }) {
+export default function Schedule({ days, staff, me, isAdmin, assignShift, toggleSelf }) {
   const [editing, setEditing] = useState(null); // { shift, dayName }
 
   return (
@@ -30,12 +30,22 @@ export default function Schedule({ days, staff, assignShift }) {
                     <div className="shift-staffed">
                       {shift.assigned.length} of {shift.needed} staffed
                     </div>
-                    <button
-                      className="btn btn-secondary self-start"
-                      onClick={() => setEditing({ shift, dayName: day.name })}
-                    >
-                      Assign staff
-                    </button>
+                    {isAdmin ? (
+                      <button
+                        className="btn btn-secondary self-start"
+                        onClick={() => setEditing({ shift, dayName: day.name })}
+                      >
+                        Assign staff
+                      </button>
+                    ) : (
+                      <button
+                        className="btn btn-secondary self-start"
+                        disabled={open <= 0 && !shift.assigned.includes(me.id)}
+                        onClick={() => toggleSelf(shift.id, shift.assigned.includes(me.id))}
+                      >
+                        {shift.assigned.includes(me.id) ? 'Leave shift' : 'Take shift'}
+                      </button>
+                    )}
                   </div>
                 );
               })}
