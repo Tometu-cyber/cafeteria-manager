@@ -91,3 +91,17 @@ api.joinShift = (shiftId, staffId) =>
   supabase.from('shift_assignments').insert({ shift_id: shiftId, staff_id: staffId }).then(check);
 api.leaveShift = (shiftId, staffId) =>
   supabase.from('shift_assignments').delete().eq('shift_id', shiftId).eq('staff_id', staffId).then(check);
+
+// Account management runs server-side (supabase/functions/staff-admin) and only admins may call it.
+async function staffAdmin(body) {
+  const { data, error } = await supabase.functions.invoke('staff-admin', { body });
+  if (error) {
+    let msg = error.message;
+    try { msg = (await error.context.json()).error || msg; } catch { /* keep default */ }
+    throw new Error(msg);
+  }
+  return data;
+}
+api.createStaff = (m) => staffAdmin({ action: 'create', ...m });
+api.setPassword = (email, password) => staffAdmin({ action: 'set-password', email, password });
+api.deleteStaff = (id) => staffAdmin({ action: 'delete', id });

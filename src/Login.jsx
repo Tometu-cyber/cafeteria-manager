@@ -53,9 +53,6 @@ export default function Login() {
     let res;
     if (mode === 'signin') {
       res = await supabase.auth.signInWithPassword({ email: addr, password });
-    } else if (mode === 'signup') {
-      res = await supabase.auth.signUp({ email: addr, password, options: { emailRedirectTo: redirectTo() } });
-      if (!res.error) setSent(`We sent a confirmation link to ${addr}. Click it, then sign in.`);
     } else {
       res = await supabase.auth.resetPasswordForEmail(addr, { redirectTo: redirectTo() });
       if (!res.error) setSent(`If ${addr} has an account, a reset link is on its way.`);
@@ -64,7 +61,7 @@ export default function Login() {
     setBusy(false);
   }
 
-  const titles = { signin: 'Sign in', signup: 'Create your account', forgot: 'Reset your password' };
+  const titles = { signin: 'Sign in', forgot: 'Reset your password' };
 
   if (sent) {
     return (
@@ -78,9 +75,9 @@ export default function Login() {
   return (
     <Shell title={titles[mode]}>
       <form onSubmit={submit} className="stack gap-3">
-        {mode === 'signup' && (
+        {mode === 'signin' && (
           <p className="text-muted" style={{ margin: 0 }}>
-            Use the email an admin added to the staff list.
+            Accounts are created by an admin. Ask one if you don't have yours yet.
           </p>
         )}
         <Field
@@ -100,25 +97,20 @@ export default function Login() {
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
-            minLength={mode === 'signup' ? 8 : undefined}
+            autoComplete="current-password"
             required
           />
         )}
         <Error>{error}</Error>
         <button className="btn btn-primary" disabled={busy}>
-          {busy ? 'Please wait…' : { signin: 'Sign in', signup: 'Create account', forgot: 'Email me a reset link' }[mode]}
+          {busy ? 'Please wait…' : { signin: 'Sign in', forgot: 'Email me a reset link' }[mode]}
         </button>
       </form>
 
       <div className="login-links">
-        {mode === 'signin' && (
-          <>
-            <button className="btn btn-ghost" onClick={() => switchTo('forgot')}>Forgot password?</button>
-            <button className="btn btn-ghost" onClick={() => switchTo('signup')}>Create account</button>
-          </>
-        )}
-        {mode !== 'signin' && (
+        {mode === 'signin' ? (
+          <button className="btn btn-ghost" onClick={() => switchTo('forgot')}>Forgot password?</button>
+        ) : (
           <button className="btn btn-ghost" onClick={() => switchTo('signin')}>Back to sign in</button>
         )}
       </div>

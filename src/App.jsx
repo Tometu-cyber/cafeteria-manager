@@ -71,9 +71,10 @@ function Signed({ session }) {
   const isAdmin = me?.role === 'admin';
 
   const actions = {
-    addStaff: run(api.addStaff),
+    addStaff: run(api.createStaff),
+    setPassword: run(api.setPassword),
     toggleRole: run((id) => api.toggleRole(id, data.staff.find((m) => m.id === id).role === 'admin' ? 'staff' : 'admin')),
-    removeStaff: run(api.removeStaff),
+    removeStaff: run(api.deleteStaff),
     addProduct: run((p) => api.addProduct({ name: p.name, cost: p.cost, price: p.price })),
     removeProduct: run(api.removeProduct),
     disconnectCalendar: run(api.removeCalendar),
@@ -155,7 +156,7 @@ function Signed({ session }) {
             <Inventory inventory={data.inventory} adjustStock={adjustStock} canEdit={isAdmin} />
           )}
           {status === 'ready' && screen === 'admin' && isAdmin && (
-            <Admin staff={data.staff} inventory={data.inventory} calendars={data.calendars} actions={actions} />
+            <Admin staff={data.staff} inventory={data.inventory} calendars={data.calendars} actions={actions} me={me} />
           )}
         </div>
       </main>
