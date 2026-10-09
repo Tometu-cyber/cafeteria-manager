@@ -5,6 +5,7 @@
 import ICAL from 'npm:ical.js@2.1.0';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { buildFeed, busyIntervals, nextOccurrence, overlaps } from './core.js';
+import { localDayBounds } from './core.js';
 
 const TZ = 'Europe/Paris';
 const WINDOW_MS = 8 * 24 * 3600 * 1000;
@@ -148,6 +149,8 @@ Deno.serve(async (req) => {
     const failed: number[] = [];
     const { data: shifts } = await db.from('shifts').select('id, day, time_label');
     const now = new Date();
+    // Read events from midnight today so classes earlier today still count as "on campus".
+    const from = localDayBounds(now.getTime(), TZ)[0];
     const occurrences = (shifts ?? [])
       .map((s) => ({ id: s.id as number, occ: nextOccurrence(s.day, s.time_label, TZ, now) }))
       .filter((x) => x.occ);
@@ -157,17 +160,30 @@ Deno.serve(async (req) => {
       const ids = (cals ?? []).map((c) => c.id);
       if (!ids.length) {
         await db.from('shift_busy').delete().eq('staff_id', staffId);
+        await db.from('shift_status').delete().eq('staff_id', staffId);
         continue;
       }
       const { data: secrets } = await db.from('calendar_secrets').select('calendar_id, ical_url').in('calendar_id', ids);
       try {
         const intervals: [number, number][] = [];
         for (const s of secrets ?? []) {
-          intervals.push(...busyIntervals(ICAL, await fetchIcs(s.ical_url), now.getTime(), now.getTime() + WINDOW_MS));
+          intervals.push(...busyIntervals(ICAL, await fetchIcs(s.ical_url), from, now.getTime() + WINDOW_MS));
         }
-        const busy = occurrences
-          .filter((x) => overlaps(intervals, x.occ!.start, x.occ!.end))
-          .map((x) => ({ shift_id: x.id, staff_id: staffId }));
+        // Per shift: busy during it? and are there any events that day at all (on campus)?
+        // Someone with no events all day is not "free": no point coming in just for the shift.
+        const status = occurrences.map((x) => {
+          const [dayStart, dayEnd] = localDayBounds(x.occ!.start, TZ);
+          return {
+            shift_id: x.id,
+            staff_id: staffId,
+            busy: overlaps(intervals, x.occ!.start, x.occ!.end),
+            on_campus: overlaps(intervals, dayStart, dayEnd),
+          };
+        });
+        await db.from('shift_status').delete().eq('staff_id', staffId);
+        if (status.length) await db.from('shift_status').insert(status);
+        // shift_busy is kept up to date for the previous version of the app.
+        const busy = status.filter((x) => x.busy).map((x) => ({ shift_id: x.shift_id, staff_id: staffId }));
         await db.from('shift_busy').delete().eq('staff_id', staffId);
         if (busy.length) await db.from('shift_busy').insert(busy);
         await db.from('calendars').update({ last_sync: now.toISOString() }).in('id', ids);

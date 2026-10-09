@@ -14,12 +14,12 @@ export const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday',
 
 // Reads every table and shapes it the way the screens expect.
 export async function loadAll() {
-  const [staff, products, shifts, assignments, busy, calendars] = await Promise.all([
+  const [staff, products, shifts, assignments, status, calendars] = await Promise.all([
     supabase.from('staff').select('*').order('id').then(check),
     supabase.from('products').select('*').order('id').then(check),
     supabase.from('shifts').select('*').order('day_order').order('time_label').then(check),
     supabase.from('shift_assignments').select('*').then(check),
-    supabase.from('shift_busy').select('*').then(check),
+    supabase.from('shift_status').select('*').then(check),
     supabase.from('calendars').select('id, name, last_sync, staff_id').order('id').then(check),
   ]);
 
@@ -36,15 +36,20 @@ export async function loadAll() {
       time: s.time_label,
       needed: s.needed,
       assigned: assignments.filter((a) => a.shift_id === s.id).map((a) => a.staff_id),
-      busy: busy.filter((b) => b.shift_id === s.id).map((b) => b.staff_id),
+      busy: status.filter((r) => r.shift_id === s.id && r.busy).map((r) => r.staff_id),
+      noClass: status.filter((r) => r.shift_id === s.id && !r.on_campus).map((r) => r.staff_id),
     });
   }
-  // "Free" = has a connected calendar and isn't busy for any shift that day.
+  // Purely indicative hints, never a rule. "Free" = has a synced calendar, has at least one
+  // event that day (so is on campus anyway) and isn't busy during the day's shifts.
+  // Someone with no events all day isn't listed as free: no point coming in just for a shift.
   for (const day of days) {
+    const synced = (m) => withCalendar.has(m.id) && day.shifts.every((sh) => status.some((r) => r.shift_id === sh.id && r.staff_id === m.id));
     day.hasCalendars = withCalendar.size > 0;
     day.free = staff
-      .filter((m) => withCalendar.has(m.id) && day.shifts.every((sh) => !sh.busy.includes(m.id)))
+      .filter((m) => synced(m) && day.shifts.every((sh) => !sh.noClass.includes(m.id) && !sh.busy.includes(m.id)))
       .map((m) => m.name);
+    day.noClass = staff.filter((m) => synced(m) && day.shifts.every((sh) => sh.noClass.includes(m.id))).map((m) => m.name);
   }
 
   return {
