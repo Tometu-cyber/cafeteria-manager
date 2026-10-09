@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase, loadAll, api, auth } from './api.js';
-import Login from './Login.jsx';
+import Login, { SetPassword } from './Login.jsx';
 import { CoffeeIcon, CalendarIcon, PackageIcon, SlidersIcon } from './icons.jsx';
 import Schedule from './screens/Schedule.jsx';
 import Inventory from './screens/Inventory.jsx';
@@ -17,15 +17,20 @@ const EMPTY = { staff: [], inventory: [], calendars: [], days: [] };
 export default function App() {
   // undefined = still checking, null = signed out
   const [session, setSession] = useState(undefined);
+  const [recovering, setRecovering] = useState(false); // arrived via a password-reset link
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
+    const { data } = supabase.auth.onAuthStateChange((event, s) => {
+      if (event === 'PASSWORD_RECOVERY') setRecovering(true);
+      setSession(s);
+    });
     return () => data.subscription.unsubscribe();
   }, []);
 
   if (session === undefined) return null;
   if (!session) return <Login />;
+  if (recovering) return <SetPassword onDone={() => setRecovering(false)} />;
   return <Signed session={session} />;
 }
 
